@@ -2979,6 +2979,23 @@ std::string const RandomPlayerbotMgr::HandleRemoteCommand(std::string const requ
     std::string const command = std::string(request.begin(), pos);
     ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>(atoi(std::string(pos + 1, request.end()).c_str()));
     Player* bot = GetPlayerBot(guid);
+
+    // wotlk-portal: serve "position" for ANY online player (not just bots) so the
+    // web map can track real players live, the same way it tracks bots.
+    if (command == "position")
+    {
+        Player* p = bot ? bot : ObjectAccessor::FindPlayer(guid);
+        if (!p)
+            return "invalid guid";
+
+        std::ostringstream out;
+        out << p->GetPositionX() << " " << p->GetPositionY() << " " << p->GetPositionZ() << " "
+            << p->GetMapId() << " " << p->GetOrientation();
+        if (AreaTableEntry const* zoneEntry = sAreaTableStore.LookupEntry(p->GetZoneId()))
+            out << " |" << zoneEntry->area_name[0] << "|";
+        return out.str();
+    }
+
     if (!bot)
         return "invalid guid";
 
