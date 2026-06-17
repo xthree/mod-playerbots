@@ -1389,7 +1389,10 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     if (!player->IsInWorld())
         return false;
 
-    if (player->GetGroup() || player->HasUnitState(UNIT_STATE_IN_FLIGHT))
+    // [mod-ollama-bot-control] leave externally-controlled bots alone so the LLM
+    // action module's commands are not overridden by random questing/teleporting.
+    if (player->GetGroup() || player->HasUnitState(UNIT_STATE_IN_FLIGHT) ||
+        (botAI && botAI->IsExternallyControlled()))
         return false;
 
     uint32 update = GetEventValue(bot, "update");

@@ -418,9 +418,12 @@ void PlayerbotAI::UpdateAIGroupMaster()
     bool IsRandomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
 
     // If bot is not in group verify that for is RandomBot before clearing  master and resetting.
+    // [mod-ollama-bot-control] Skip the release while an external controller (the
+    // LLM action module) holds a time-boxed lease, so a commanded ungrouped random
+    // bot keeps its master + strategies until the lease expires.
     if (!group)
     {
-        if (master && IsRandomBot)
+        if (master && IsRandomBot && !IsExternallyControlled())
         {
             SetMaster(nullptr);
             Reset(true);
@@ -4450,6 +4453,24 @@ bool PlayerbotAI::HasRealPlayerMaster()
 }
 
 bool PlayerbotAI::HasActivePlayerMaster() { return master && !GET_PLAYERBOT_AI(master); }
+
+// [mod-ollama-bot-control] Time-boxed external-control lease. The LLM action module
+// renews this on every command; while it is active the engine leaves the (ungrouped,
+// random) bot under the external controller instead of releasing it to autonomy.
+void PlayerbotAI::SetExternalControl(uint32 durationSeconds)
+{
+    m_externalControlUntil = durationSeconds ? (time(nullptr) + static_cast<time_t>(durationSeconds)) : 0;
+}
+
+void PlayerbotAI::ClearExternalControl()
+{
+    m_externalControlUntil = 0;
+}
+
+bool PlayerbotAI::IsExternallyControlled() const
+{
+    return m_externalControlUntil != 0 && time(nullptr) < m_externalControlUntil;
+}
 
 bool PlayerbotAI::IsAlt() { return HasRealPlayerMaster() && !sRandomPlayerbotMgr.IsRandomBot(bot); }
 

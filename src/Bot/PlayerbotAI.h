@@ -539,6 +539,10 @@ public:
     bool HasRealPlayerMaster();
     // Bot has a master that is activly playing.
     bool HasActivePlayerMaster();
+    // [mod-ollama-bot-control] Time-boxed external-control lease (see .cpp).
+    void SetExternalControl(uint32 durationSeconds);
+    void ClearExternalControl();
+    bool IsExternallyControlled() const;
     // Get the group leader or the master of the bot.
     // Checks if the bot is summoned as alt of a player
     bool IsAlt();
@@ -603,6 +607,8 @@ public:
     NewRpgStatistic rpgStatistic;
     std::unordered_set<uint32> lowPriorityQuest;
     time_t bgReleaseAttemptTime = 0;
+    // [mod-ollama-bot-control] external-control lease expiry (0 = not controlled).
+    time_t m_externalControlUntil = 0;
 
     // Schedules a callback to run once after <delayMs> milliseconds.
     void AddTimedEvent(std::function<void()> callback, uint32 delayMs);
