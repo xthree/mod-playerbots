@@ -568,7 +568,7 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
         {
             float dist = bot->GetDistance(anchor);
             // Only move to close the gap when outside the leash radius.
-            if (dist > m_anchorRadius && !bot->IsMoving())
+            if (dist > m_anchorRadius && !bot->isMoving())
             {
                 float x = anchor->GetPositionX();
                 float y = anchor->GetPositionY();
