@@ -1341,6 +1341,15 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     uint32 isValid = GetEventValue(bot, "add");
     if (!isValid)
     {
+        // [mod-ollama-bot-control V0-A4] Exempt LLM-controlled random bots from the
+        // expiry-logout path.  If the player is online and LLM-controlled, keep them
+        // alive; do NOT call LogoutPlayerBot or remove from currentBots.
+        if (botAI && botAI->IsLLMControlled())
+        {
+            LOG_DEBUG("playerbots", "Bot #{}: LLM-controlled, skipping expiry logout", bot);
+            return false;
+        }
+
         if (!player || !player->GetGroup())
         {
             if (player)
@@ -1371,6 +1380,11 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
         SetEventValue(bot, "update", 1, randomTime);
 
         // do not randomize or teleport immediately after server start (prevent lagging)
+        // [mod-ollama-bot-control V0-A4] Pin name/identity: skip randomize + teleport
+        // scheduling while the bot is LLM-controlled (botAI is null here — bot is not
+        // yet online; the durable flag will be re-asserted on spawn by the V1 layer, so
+        // we proceed with AddPlayerBot but hold off on randomize/teleport scheduling
+        // until the next cycle when the bot is online and the flag can be checked).
         if (!GetEventValue(bot, "randomize"))
         {
             randomTime = urand(3, std::max(4, static_cast<int>(randomBotUpdateInterval * 0.4)));
@@ -1391,8 +1405,10 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
 
     // [mod-ollama-bot-control] leave externally-controlled bots alone so the LLM
     // action module's commands are not overridden by random questing/teleporting.
+    // [mod-ollama-bot-control V0-A4] Also exempt durable LLM-controlled bots from
+    // random questing so their state (master, strategies) is preserved.
     if (player->GetGroup() || player->HasUnitState(UNIT_STATE_IN_FLIGHT) ||
-        (botAI && botAI->IsExternallyControlled()))
+        (botAI && (botAI->IsExternallyControlled() || botAI->IsLLMControlled())))
         return false;
 
     uint32 update = GetEventValue(bot, "update");

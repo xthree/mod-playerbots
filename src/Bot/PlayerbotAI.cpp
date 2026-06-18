@@ -421,9 +421,11 @@ void PlayerbotAI::UpdateAIGroupMaster()
     // [mod-ollama-bot-control] Skip the release while an external controller (the
     // LLM action module) holds a time-boxed lease, so a commanded ungrouped random
     // bot keeps its master + strategies until the lease expires.
+    // [mod-ollama-bot-control V0-A1] Also skip while the durable LLM-controlled flag
+    // is set — a persistent-agent bot must not have its master wiped by this path.
     if (!group)
     {
-        if (master && IsRandomBot && !IsExternallyControlled())
+        if (master && IsRandomBot && !IsExternallyControlled() && !m_llmControlled)
         {
             SetMaster(nullptr);
             Reset(true);
@@ -441,7 +443,11 @@ void PlayerbotAI::UpdateAIGroupMaster()
     if (master)
         masterBotAI = GET_PLAYERBOT_AI(master);
 
-    if (!master || (masterBotAI && !masterBotAI->IsRealPlayer()))
+    // [mod-ollama-bot-control V0-A3] While LLM-controlled in SERVANT_BOUND mode the
+    // engine must NOT overwrite the bound master via FindNewMaster or group-join.
+    // In AUTONOMY/SERVANT_OPEN we still allow normal master re-assignment.
+    bool boundMasterLocked = m_llmControlled && (m_llmControlMode == LLMControlMode::SERVANT_BOUND);
+    if (!boundMasterLocked && (!master || (masterBotAI && !masterBotAI->IsRealPlayer())))
     {
         Player* newMaster = FindNewMaster();
         if (newMaster)
@@ -550,6 +556,33 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
     botOutgoingPacketHandlers.Handle(helper);
     masterIncomingPacketHandlers.Handle(helper);
     masterOutgoingPacketHandlers.Handle(helper);
+
+    // [mod-ollama-bot-control V0-C2] Tagalong anchor roam bias.
+    // If a loose anchor is set and the bot is outside the soft radius, guide it back
+    // toward the anchor as a relaxed catch-up (not a tight follow).  The bot remains
+    // free to act autonomously while inside the radius.
+    if (!m_anchorGuid.IsEmpty() && currentState == BOT_STATE_NON_COMBAT)
+    {
+        Unit* anchor = GetUnit(m_anchorGuid);
+        if (anchor && anchor->IsInWorld() && anchor->GetMap() == bot->GetMap())
+        {
+            float dist = bot->GetDistance(anchor);
+            // Only move to close the gap when outside the leash radius.
+            if (dist > m_anchorRadius && !bot->IsMoving())
+            {
+                float x = anchor->GetPositionX();
+                float y = anchor->GetPositionY();
+                float z = anchor->GetPositionZ();
+                bot->GetMotionMaster()->MovePoint(0, x, y, z);
+            }
+        }
+        else
+        {
+            // Anchor left the map/world — clear it.
+            m_anchorGuid   = ObjectGuid::Empty;
+            m_anchorRadius = 0.f;
+        }
+    }
 
     DoNextAction(minimal);
 
@@ -4470,6 +4503,38 @@ void PlayerbotAI::ClearExternalControl()
 bool PlayerbotAI::IsExternallyControlled() const
 {
     return m_externalControlUntil != 0 && time(nullptr) < m_externalControlUntil;
+}
+
+// [mod-ollama-bot-control V0-A1] Set/clear the durable LLM-controlled flag.
+// SetLLMControlled(true)  — mark bot as a persistent LLM agent; gate engine release
+//   sites so the engine won't wipe master/strategies while AI is active.
+// SetLLMControlled(false) — calls DisableLLMControl() which unconditionally restores
+//   native strategies for ANY character type (fixes the persistent-char lobotomy bug).
+void PlayerbotAI::SetLLMControlled(bool controlled)
+{
+    if (controlled)
+    {
+        m_llmControlled = true;
+    }
+    else
+    {
+        DisableLLMControl();
+    }
+}
+
+// [mod-ollama-bot-control V0-A2] Unconditional native-strategy restore (lobotomy fix).
+// Previously the only restore path was UpdateAIGroupMaster→ResetStrategies gated on
+// IsRandomBot, so persistent characters were never restored.  This method is called
+// on AI-disable for ANY character type and also by the Ollama-stall degradation path.
+void PlayerbotAI::DisableLLMControl()
+{
+    m_llmControlled  = false;
+    m_llmControlMode = LLMControlMode::AUTONOMY;
+    m_llmBoundMaster = ObjectGuid::Empty;
+    m_anchorGuid     = ObjectGuid::Empty;
+    m_anchorRadius   = 0.f;
+    // Unconditionally restore native non-combat strategies for any character type.
+    SelectiveResetStrategies(BOT_STATE_NON_COMBAT);
 }
 
 bool PlayerbotAI::IsAlt() { return HasRealPlayerMaster() && !sRandomPlayerbotMgr.IsRandomBot(bot); }

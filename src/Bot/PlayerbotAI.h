@@ -543,6 +543,44 @@ public:
     void SetExternalControl(uint32 durationSeconds);
     void ClearExternalControl();
     bool IsExternallyControlled() const;
+
+    // [mod-ollama-bot-control V0] Durable LLM-controlled flag — distinct from the
+    // transient lease above.  Survives idle gaps and server restarts (re-asserted by
+    // the persistence layer on spawn).  Gates the engine's own master-wipe and
+    // recycle/logout/teleport release sites.
+    void SetLLMControlled(bool controlled);
+    bool IsLLMControlled() const { return m_llmControlled; }
+
+    // [mod-ollama-bot-control V0-A2] Unconditional native-strategy restore for ANY
+    // character type (fixes the persistent-character lobotomy bug — the only prior
+    // restore path was gated on IsRandomBot).
+    void DisableLLMControl();
+
+    // [mod-ollama-bot-control V0-A3] Engine-owned control mode + bound-master GUID.
+    // The module FSM (V2) triggers transitions by calling these setters; ownership
+    // lives in the engine so FindNewMaster / UpdateAIGroupMaster cannot hijack a
+    // bound master.
+    enum class LLMControlMode : uint8
+    {
+        AUTONOMY      = 0,   // self-directed; free to ignore commands (default on enable)
+        SERVANT_BOUND = 1,   // obey exactly one bound master
+        SERVANT_OPEN  = 2,   // obey any player's commands
+    };
+    LLMControlMode GetLLMControlMode() const { return m_llmControlMode; }
+    void SetLLMControlMode(LLMControlMode mode) { m_llmControlMode = mode; }
+
+    ObjectGuid GetLLMBoundMaster() const { return m_llmBoundMaster; }
+    void SetLLMBoundMaster(ObjectGuid guid) { m_llmBoundMaster = guid; }
+    void ClearLLMBoundMaster() { m_llmBoundMaster = ObjectGuid::Empty; }
+
+    // [mod-ollama-bot-control V0-C2] Tagalong anchor: loose leash (not a follow).
+    // The bot roams freely within anchorRadius; only drifts back when the anchor
+    // unit exceeds the radius.  Set/cleared by the module autonomy loop (V4).
+    ObjectGuid GetAnchorGuid() const { return m_anchorGuid; }
+    float GetAnchorRadius() const { return m_anchorRadius; }
+    void SetAnchor(ObjectGuid guid, float radius) { m_anchorGuid = guid; m_anchorRadius = radius; }
+    void ClearAnchor() { m_anchorGuid = ObjectGuid::Empty; m_anchorRadius = 0.f; }
+
     // Get the group leader or the master of the bot.
     // Checks if the bot is summoned as alt of a player
     bool IsAlt();
@@ -609,6 +647,14 @@ public:
     time_t bgReleaseAttemptTime = 0;
     // [mod-ollama-bot-control] external-control lease expiry (0 = not controlled).
     time_t m_externalControlUntil = 0;
+
+    // [mod-ollama-bot-control V0] Durable state fields (distinct from the transient lease).
+    bool           m_llmControlled   = false;
+    LLMControlMode m_llmControlMode  = LLMControlMode::AUTONOMY;
+    ObjectGuid     m_llmBoundMaster  = ObjectGuid::Empty;
+    // [mod-ollama-bot-control V0-C2] Tagalong anchor.
+    ObjectGuid     m_anchorGuid      = ObjectGuid::Empty;
+    float          m_anchorRadius    = 0.f;
 
     // Schedules a callback to run once after <delayMs> milliseconds.
     void AddTimedEvent(std::function<void()> callback, uint32 delayMs);
