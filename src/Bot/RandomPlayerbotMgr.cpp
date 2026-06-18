@@ -1380,11 +1380,14 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
         SetEventValue(bot, "update", 1, randomTime);
 
         // do not randomize or teleport immediately after server start (prevent lagging)
-        // [mod-ollama-bot-control V0-A4] Pin name/identity: skip randomize + teleport
-        // scheduling while the bot is LLM-controlled (botAI is null here — bot is not
-        // yet online; the durable flag will be re-asserted on spawn by the V1 layer, so
-        // we proceed with AddPlayerBot but hold off on randomize/teleport scheduling
-        // until the next cycle when the bot is online and the flag can be checked).
+        // [mod-ollama-bot-control V0-A4] NOTE: botAI is null on this offline path, so
+        // m_llmControlled CANNOT be checked here — randomize/teleport ARE still scheduled
+        // below. This is harmless while the bot stays LLM-controlled: on its next online
+        // tick the ProcessBot(uint32) guard (IsLLMControlled, in the 'update' branch
+        // below) returns before ProcessBot(Player*) ever fires the scheduled events.
+        // GAP/TODO(V1): re-assert m_llmControlled from the DB on spawn BEFORE the first
+        // post-restart ProcessBot tick, and gate these two Schedule* calls on that durable
+        // signal (DB lookup by bot GUID) instead of the null botAI.
         if (!GetEventValue(bot, "randomize"))
         {
             randomTime = urand(3, std::max(4, static_cast<int>(randomBotUpdateInterval * 0.4)));
